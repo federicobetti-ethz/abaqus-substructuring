@@ -9,11 +9,7 @@ E = 210e9
 nu = 0.3
 rho = 7850
 
-vecs = np.loadtxt('eigenmodes.txt')
-freqs = np.loadtxt('eigenfreqs.txt')
-nDofs, nModes = vecs.shape
-
-odb = session.Odb(name='BlockMatrixJob', path='BlockMatrixJob.odb')
+odb = session.Odb(name='BlockMatrixJob', path='BlockMatrixJob_from_python.odb')
 
 mdb = openMdb(pathName='block_model.cae')
 model = mdb.models['BlockModel']
@@ -73,21 +69,26 @@ step = odb.Step(
 
 nodeLabels = [nodeDataPoint[0] for nodeDataPoint in nodeData]
 
-for i in range(nModes):
-    frame = step.Frame(mode=i, frequency=freqs[i])
-    disp = frame.FieldOutput(
-        name='U',
-        description=f'Mode {i+1}',
-        type=VECTOR,
-        validInvariants=(MAGNITUDE,)
-    )
-    labels = tuple(nodeLabels)
-    data = vecs[:, i]
-    data = data.reshape(-1, 3)
-    data = tuple(tuple(data[j]) for j in range(data.shape[0]))
-    disp.addData(position=NODAL, instance=instance, labels=labels, data=data)
+num_substructures = 4
+for i in range(num_substructures):
+    vecs = np.loadtxt(f'eigenmodes_{i}.txt')
+    freqs = np.loadtxt(f'eigenfrequencies_{i}.txt')
+
+    nDofs, nModes = vecs.shape
+
+    for j in range(nModes):
+        frame = step.Frame(mode=j, frequency=0.1)
+        disp = frame.FieldOutput(
+            name='U',
+            description=f'Mode {j+1}',
+            type=VECTOR,
+            validInvariants=(MAGNITUDE,)
+        )
+        labels = tuple(nodeLabels)
+        data = vecs[:, j]
+        data = data.reshape(-1, 3)
+        data = tuple(tuple(data[k]) for k in range(data.shape[0]))
+        disp.addData(position=NODAL, instance=instance, labels=labels, data=data)
 
 odb.save()
 odb.close()
-
-print("Exported all modes to ODB")

@@ -16,3 +16,5 @@
 *.msg
 *.png
 *.env
+*.rec
+*.npz
