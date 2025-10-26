@@ -156,9 +156,9 @@ class SplineTrackPipeline:
             'rail_step_file': self.step_files['rail_step'],
             'sleeper_step_file': self.step_files['sleeper_step'],
             'base_cae_file': "SleeperMeshRefinement.cae",
-            'sleeper_length': self.sleeper_length,
-            'rail_burn_in': self.rail_burn_in,
-            'sleeper_spacing': self.sleeper_spacing,
+            'SleeperLength': self.sleeper_length,
+            'RailBurnIn': self.rail_burn_in,
+            'SleeperSpacing': self.sleeper_spacing,
         }
         
         json_path = os.path.join(self.output_dir, "spline_track_config.json")
@@ -194,7 +194,6 @@ class SplineTrackPipeline:
         Returns:
             bool: True if successful
         """
-        print(script_path)
         self.modify_abaqus_script(script_path)
         cmd = f'abaqus cae noGUI={script_path}'
         subprocess.run(cmd, shell=True, check=True, capture_output=False, text=True)

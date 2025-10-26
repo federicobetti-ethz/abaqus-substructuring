@@ -147,6 +147,7 @@ class SplineBasedTrackGenerator:
         
         self.num_sleepers = 0
         self.lower_nodes = []
+        self.txt_file = "Wheelset.output/Wheelset-Trk_Track.txt"
         
     def get_spline_coordinates(self, file_path: str):
         """Get spline coordinates from the track output file.
@@ -319,15 +320,12 @@ class SplineBasedTrackGenerator:
         """
         rail_part = self.model.parts[AbaqusConstants.RAIL_PART_NAME]
         
-        j = 0
-        self.num_sleepers = 0
-        
-        while (j+1) * self.sleeper_spacing + self.rail_burn_in <= xs_spline_interp(ss[-1]):
+        while (self.num_sleepers+1) * self.sleeper_spacing + self.rail_burn_in <= xs_spline_interp(ss[-1]):
             labels_nodes_to_keep = []
             nodes_coordinates = []
             sleeper_length = self.sleeper_length
-            xs_start = (j+1) * self.sleeper_spacing - sleeper_length - self.rail_burn_in
-            xs_end = (j+1) * self.sleeper_spacing + sleeper_length - self.rail_burn_in
+            xs_start = (self.num_sleepers+1) * self.sleeper_spacing - sleeper_length - self.rail_burn_in
+            xs_end = (self.num_sleepers+1) * self.sleeper_spacing + sleeper_length - self.rail_burn_in
             
             for node in self.lower_nodes:
                 if node.coordinates[0] >= xs_start and node.coordinates[0] <= xs_end:
@@ -337,7 +335,7 @@ class SplineBasedTrackGenerator:
             if len(labels_nodes_to_keep) > 0:
                 nodes_to_keep = rail_part.nodes.sequenceFromLabels(labels=labels_nodes_to_keep)
                 rail_part.Set(
-                    name=f"{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING}{j+1}",
+                    name=f"{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING}{self.num_sleepers+1}",
                     nodes=nodes_to_keep
                 )
                 
@@ -346,12 +344,11 @@ class SplineBasedTrackGenerator:
                 ).label
                 control_point = rail_part.nodes.sequenceFromLabels(labels=[control_point_label])
                 rail_part.Set(
-                    name=f"{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING}{j+1}{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING_CONTROL_POINT[-12:]}",
+                    name=f"{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING}{self.num_sleepers+1}{AbaqusConstants.RAIL_TO_SLEEPER_COUPLING_CONTROL_POINT[-12:]}",
                     nodes=control_point
                 )
             
             self.num_sleepers += 1
-            j += 1
     
     def create_sleeper_sets_and_surfaces(self):
         """Create sets and surfaces for the sleeper part."""
@@ -703,31 +700,68 @@ class SplineBasedTrackGenerator:
                     region=region, axis1=AXIS_1, axis2=AXIS_1, angle1=0.0, angle2=0.0,
                     localCsys1=self.model.rootAssembly.datums[datum_id], orient2sameAs1=True,
                 )
-    
+
+    def create_encastre_sets_for_rail(self):
+        """Create encastre sets for the rail."""
+        rail_part = self.model.parts[AbaqusConstants.RAIL_PART_NAME]
+        nodes = rail_part.nodes
+
+        node_labels = []
+        for node in nodes:
+            if np.isclose(node.coordinates[0], 0.0):
+                node_labels.append(node.label)
+        
+        nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
+        rail_part.Set(name=AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED, nodes=nodes_to_be_locked)
+
+        max_x_coordinate = max([node.coordinates[0] for node in nodes])
+
+        node_labels = []
+        for node in nodes:
+            if np.isclose(node.coordinates[0], max_x_coordinate, atol=0.02):
+                node_labels.append(node.label)
+        
+        nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
+        rail_part.Set(name=AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED, nodes=nodes_to_be_locked)
+
     def create_boundary_conditions(self):
         """Create boundary conditions for the model."""
         assembly = self.model.rootAssembly
-        
-        # Lock beginning of left rail
+
         left_rail_instance = assembly.instances[AbaqusConstants.RAIL_LEFT_INSTANCE]
-        beginning_left_nodes = []
-        for node in left_rail_instance.nodes:
-            if np.isclose(node.coordinates[0], -self.rail_burn_in):
-                beginning_left_nodes.append(node.label)
-        
-        beginning_left_nodes = left_rail_instance.nodes.sequenceFromLabels(labels=beginning_left_nodes)
+
+        beginning_left_nodes = left_rail_instance.sets[AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=beginning_left_nodes)
-        self.model.EncastreBC(name=AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED, createStepName=AbaqusConstants.INITIAL_STEP, region=region)
+        self.model.EncastreBC(
+            name=AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED,
+            createStepName=AbaqusConstants.INITIAL_STEP,
+            region=region
+        )
+
+        end_left_nodes = left_rail_instance.sets[AbaqusConstants.ENDING_LEFT_RAIL_LOCKED].nodes
+        region = regionToolset.Region(nodes=end_left_nodes)
+        self.model.EncastreBC(
+            name=AbaqusConstants.ENDING_LEFT_RAIL_LOCKED,
+            createStepName=AbaqusConstants.INITIAL_STEP,
+            region=region
+        )
 
         right_rail_instance = assembly.instances[AbaqusConstants.RAIL_RIGHT_INSTANCE]
-        ending_right_nodes = []
-        for node in right_rail_instance.nodes:
-            if np.isclose(node.coordinates[0], -self.rail_burn_in):
-                ending_right_nodes.append(node.label)
-        
-        ending_right_nodes = right_rail_instance.nodes.sequenceFromLabels(labels=ending_right_nodes)
+        beginning_right_nodes = right_rail_instance.sets[AbaqusConstants.BEGINNING_RIGHT_RAIL_LOCKED].nodes
+        region = regionToolset.Region(nodes=beginning_right_nodes)
+        self.model.EncastreBC(
+            name=AbaqusConstants.BEGINNING_RIGHT_RAIL_LOCKED,
+            createStepName=AbaqusConstants.INITIAL_STEP,
+            region=region
+        )
+
+        ending_right_nodes = right_rail_instance.sets[AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=ending_right_nodes)
-        self.model.EncastreBC(name=AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED, createStepName=AbaqusConstants.INITIAL_STEP, region=region)
+        self.model.EncastreBC(
+            name=AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED,
+            createStepName=AbaqusConstants.INITIAL_STEP,
+            region=region
+        )
     
     def create_frequency_step(self):
         """Create the frequency extraction step."""
@@ -742,8 +776,7 @@ class SplineBasedTrackGenerator:
     
     def generate_model(self):
         """Generate the complete spline-based track model."""
-        txt_file = "Wheelset.output/Wheelset-Trk_Track.txt"
-        ss, xs, ys, zs = self.get_spline_coordinates(txt_file)
+        ss, xs, ys, zs = self.get_spline_coordinates(self.txt_file)
         xs_spline_interp = interp1d(ss, xs)
         ys_spline_interp = interp1d(ss, ys)
         zs_spline_interp = interp1d(ss, zs)
@@ -766,6 +799,7 @@ class SplineBasedTrackGenerator:
         self.create_connector_sections()
         self.create_wire_polylines()
         
+        self.create_encastre_sets_for_rail()
         self.create_boundary_conditions()
         self.create_frequency_step()
 
