@@ -18,3 +18,17 @@
 *.env
 *.rec
 *.npz
+*.spck
+*.step
+*.json
+*.sat
+*.sbrs
+*.fbi
+*.sim
+*.odb
+*.ipm
+*.sir
+*.spckst
+*.intinfo
+*.fecache
+*.sbr

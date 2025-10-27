@@ -15,7 +15,7 @@ def generate_rail_sweep(txt_file: str, rail_profile_points: list):
 
     profile_pts = []
     for i, (y, z) in enumerate(rail_profile_points):
-        profile_pts.append(gmsh.model.occ.addPoint(0, y, z))
+        profile_pts.append(gmsh.model.occ.addPoint(0, -y, -z))
 
     profile_lines = []
     for i in range(len(profile_pts)):
@@ -26,24 +26,26 @@ def generate_rail_sweep(txt_file: str, rail_profile_points: list):
     cl = gmsh.model.occ.addCurveLoop(profile_lines)
     profile_face = gmsh.model.occ.addPlaneSurface([cl])
 
-    xs, ys, zs = [], [], []
+    ss, xs, ys, zs = [], [], [], []
     with open(txt_file, "r") as f:
         lines = f.readlines()
         for idx, line in enumerate(lines):
-            if line.startswith('"x(s)"'):
+            if line.startswith('"Superelevation u(s)"'):
+                superelevation_line = idx
+            elif line.startswith('"x(s)"'):
                 xline = idx
             elif line.startswith('"y(s)"'):
                 yline = idx
             elif line.startswith('"z(s)"'):
                 zline = idx
-            elif line.startswith('"Superelevation u(s)"'):
-                superelevation_line = idx
-
+        
+        for line in lines[superelevation_line+3:xline]:
+            ss.append(float(line.split(",")[0]))
         for line in lines[xline+3:yline]:
             xs.append(float(line.split(",")[1]))
         for line in lines[yline+3:zline]:
             ys.append(float(line.split(",")[1]))
-        for line in lines[zline+3:superelevation_line]:
+        for line in lines[zline+3:]:
             zs.append(float(line.split(",")[1]))
 
     spline_pts = [gmsh.model.occ.addPoint(xs[i], ys[i], zs[i]) for i in range(len(xs))]

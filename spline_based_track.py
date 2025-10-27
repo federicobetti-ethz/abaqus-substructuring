@@ -63,10 +63,15 @@ class AbaqusConstants:
     RAIL_TO_SLEEPER_RIGHT_PREFIX = "RailToSleeperRight"
     BALLAST_LEFT_PREFIX = "BallastLeft"
     BALLAST_RIGHT_PREFIX = "BallastRight"
+
+    BEGINNING_RAIL_LOCKED = "BeginningRailLocked"
+    ENDING_RAIL_LOCKED = "EndingRailLocked"
     
     BEGINNING_LEFT_RAIL_LOCKED = "BeginningLeftRailLocked"
+    BEGINNING_RIGHT_RAIL_LOCKED = "BeginningRightRailLocked"
     ENDING_RIGHT_RAIL_LOCKED = "EndingRightRailLocked"
-    
+    ENDING_LEFT_RAIL_LOCKED = "EndingLeftRailLocked"
+
     INITIAL_STEP = "Initial"
     FREQUENCY_STEP = "FrequencyStep"
     
@@ -144,6 +149,7 @@ class SplineBasedTrackGenerator:
         y_center = (min(y_coords) + max(y_coords)) / 2
         z_center = (min(z_coords) + max(z_coords)) / 2
         self.rail_profile_points = [(y - y_center, z - z_center) for y, z in rail_profile_points]
+        self.rail_profile_points = [(-y, -z) for y, z in self.rail_profile_points]
         
         self.num_sleepers = 0
         self.lower_nodes = []
@@ -172,14 +178,15 @@ class SplineBasedTrackGenerator:
                 elif line.startswith('"z(s)"'):
                     zline = idx
             
-            for line in lines[xline+3:yline]:
+            for line in lines[superelevation_line+3:xline]:
                 ss.append(float(line.split(",")[0]))
+            for line in lines[xline+3:yline]:
                 xs.append(float(line.split(",")[1]))
             for line in lines[yline+3:zline]:
                 ys.append(float(line.split(",")[1]))
-            for line in lines[zline+3:superelevation_line]:
+            for line in lines[zline+3:]:
                 zs.append(float(line.split(",")[1]))
-        
+
         return np.array(ss), np.array(xs), np.array(ys), np.array(zs)
     
     def find_top_point_for_wheel_contact(self):
@@ -189,7 +196,7 @@ class SplineBasedTrackGenerator:
             tuple: Top point coordinates (x, y, z)
         """
         zs = [z for _, z in self.rail_profile_points]
-        top_z_index = zs.index(max(zs))
+        top_z_index = zs.index(min(zs))
         top_point = (0, self.rail_profile_points[top_z_index][0], self.rail_profile_points[top_z_index][1])
         return top_point
     
@@ -202,7 +209,7 @@ class SplineBasedTrackGenerator:
         zs = [z for _, z in self.rail_profile_points]
         lower_points = []
         for i, (y, z) in enumerate(self.rail_profile_points):
-            if np.isclose(z, min(zs)):
+            if np.isclose(z, max(zs)):
                 lower_points.append((0, y, z))
         return lower_points
     
@@ -320,12 +327,11 @@ class SplineBasedTrackGenerator:
         """
         rail_part = self.model.parts[AbaqusConstants.RAIL_PART_NAME]
         
-        while (self.num_sleepers+1) * self.sleeper_spacing + self.rail_burn_in <= xs_spline_interp(ss[-1]):
+        while self.num_sleepers * self.sleeper_spacing + self.rail_burn_in < xs_spline_interp(ss[-1]) - EPS:
             labels_nodes_to_keep = []
             nodes_coordinates = []
-            sleeper_length = self.sleeper_length
-            xs_start = (self.num_sleepers+1) * self.sleeper_spacing - sleeper_length - self.rail_burn_in
-            xs_end = (self.num_sleepers+1) * self.sleeper_spacing + sleeper_length - self.rail_burn_in
+            xs_start = self.num_sleepers * self.sleeper_spacing + self.rail_burn_in
+            xs_end = self.num_sleepers * self.sleeper_spacing + self.sleeper_length + self.rail_burn_in
             
             for node in self.lower_nodes:
                 if node.coordinates[0] >= xs_start and node.coordinates[0] <= xs_end:
@@ -354,7 +360,7 @@ class SplineBasedTrackGenerator:
         """Create sets and surfaces for the sleeper part."""
         sleeper_part = self.model.parts[AbaqusConstants.SLEEPER_PART_NAME]
         
-        min_z_sleeper = min([node.coordinates[2] for node in sleeper_part.nodes])
+        min_z_sleeper = max([node.coordinates[2] for node in sleeper_part.nodes])
         all_faces = sleeper_part.elementFaces
         
         element_faces = {"Left": [], "Right": []}
@@ -367,7 +373,7 @@ class SplineBasedTrackGenerator:
             
             if np.allclose(nodes_z_coordinates, min_z_sleeper):
                 y_coordinates = face_nodes[0].coordinates[1]
-                side = "Left" if y_coordinates < -0.5 else "Right"
+                side = "Left" if y_coordinates < 0.0 else "Right"
                 
                 for node in face_nodes:
                     nodes_coordinates[side].append(node.coordinates)
@@ -423,11 +429,11 @@ class SplineBasedTrackGenerator:
         right_nodes = []
         left_nodes_coordinates = []
         right_nodes_coordinates = []
-        max_z_sleeper = max([node.coordinates[2] for node in all_nodes])
+        max_z_sleeper = min([node.coordinates[2] for node in all_nodes])
         
         for node in all_nodes:
             if np.isclose(node.coordinates[2], max_z_sleeper):
-                if node.coordinates[1] < -0.5:
+                if node.coordinates[1] < 0.0:
                     left_nodes.append(node)
                     left_nodes_coordinates.append(node.coordinates)
                 else:
@@ -507,7 +513,7 @@ class SplineBasedTrackGenerator:
             )
             
             s = i * self.sleeper_spacing + EPS
-            x, y, z = xs_spline_interp(s), ys_spline_interp(s), zs_spline_interp(s)  # Use zs_spline_interp for z
+            x, y, z = xs_spline_interp(s), ys_spline_interp(s), zs_spline_interp(s)
             
             deriv_y = (ys_spline_interp(s+EPS) - ys_spline_interp(s-EPS)) / (2*EPS)
             deriv_x = (xs_spline_interp(s+EPS) - xs_spline_interp(s-EPS)) / (2*EPS)
@@ -531,14 +537,14 @@ class SplineBasedTrackGenerator:
             part=self.model.parts[AbaqusConstants.RAIL_PART_NAME],
             dependent=ON,
         )
-        rail_left_instance.translate(vector=(-self.rail_burn_in, -0.77, 0.24))
+        rail_left_instance.translate(vector=(-self.rail_burn_in, -0.74, -0.22))
         
         rail_right_instance = assembly.Instance(
             name=AbaqusConstants.RAIL_RIGHT_INSTANCE,
             part=self.model.parts[AbaqusConstants.RAIL_PART_NAME],
             dependent=ON,
         )
-        rail_right_instance.translate(vector=(-self.rail_burn_in, 0.74, 0.24))
+        rail_right_instance.translate(vector=(-self.rail_burn_in, 0.77, -0.22))
     
     def create_coupling_constraints(self):
         """Create coupling constraints between rails and sleepers."""
@@ -712,7 +718,7 @@ class SplineBasedTrackGenerator:
                 node_labels.append(node.label)
         
         nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
-        rail_part.Set(name=AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED, nodes=nodes_to_be_locked)
+        rail_part.Set(name=AbaqusConstants.BEGINNING_RAIL_LOCKED, nodes=nodes_to_be_locked)
 
         max_x_coordinate = max([node.coordinates[0] for node in nodes])
 
@@ -722,7 +728,7 @@ class SplineBasedTrackGenerator:
                 node_labels.append(node.label)
         
         nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
-        rail_part.Set(name=AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED, nodes=nodes_to_be_locked)
+        rail_part.Set(name=AbaqusConstants.ENDING_RAIL_LOCKED, nodes=nodes_to_be_locked)
 
     def create_boundary_conditions(self):
         """Create boundary conditions for the model."""
@@ -730,7 +736,7 @@ class SplineBasedTrackGenerator:
 
         left_rail_instance = assembly.instances[AbaqusConstants.RAIL_LEFT_INSTANCE]
 
-        beginning_left_nodes = left_rail_instance.sets[AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED].nodes
+        beginning_left_nodes = left_rail_instance.sets[AbaqusConstants.BEGINNING_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=beginning_left_nodes)
         self.model.EncastreBC(
             name=AbaqusConstants.BEGINNING_LEFT_RAIL_LOCKED,
@@ -738,7 +744,7 @@ class SplineBasedTrackGenerator:
             region=region
         )
 
-        end_left_nodes = left_rail_instance.sets[AbaqusConstants.ENDING_LEFT_RAIL_LOCKED].nodes
+        end_left_nodes = left_rail_instance.sets[AbaqusConstants.ENDING_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=end_left_nodes)
         self.model.EncastreBC(
             name=AbaqusConstants.ENDING_LEFT_RAIL_LOCKED,
@@ -747,7 +753,7 @@ class SplineBasedTrackGenerator:
         )
 
         right_rail_instance = assembly.instances[AbaqusConstants.RAIL_RIGHT_INSTANCE]
-        beginning_right_nodes = right_rail_instance.sets[AbaqusConstants.BEGINNING_RIGHT_RAIL_LOCKED].nodes
+        beginning_right_nodes = right_rail_instance.sets[AbaqusConstants.BEGINNING_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=beginning_right_nodes)
         self.model.EncastreBC(
             name=AbaqusConstants.BEGINNING_RIGHT_RAIL_LOCKED,
@@ -755,7 +761,7 @@ class SplineBasedTrackGenerator:
             region=region
         )
 
-        ending_right_nodes = right_rail_instance.sets[AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED].nodes
+        ending_right_nodes = right_rail_instance.sets[AbaqusConstants.ENDING_RAIL_LOCKED].nodes
         region = regionToolset.Region(nodes=ending_right_nodes)
         self.model.EncastreBC(
             name=AbaqusConstants.ENDING_RIGHT_RAIL_LOCKED,

@@ -16,7 +16,7 @@ def generate_sleeper_sweep(sleeper_length: float, sleeper_profile_points: list):
 
     sleeper_profile_pts = []
     for i, (y, z) in enumerate(sleeper_profile_points):
-        sleeper_profile_pts.append(gmsh.model.occ.addPoint(0, y, z))
+        sleeper_profile_pts.append(gmsh.model.occ.addPoint(0, -y, -z))
 
     sleeper_profile_lines = []
     for i in range(len(sleeper_profile_pts)):

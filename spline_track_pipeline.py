@@ -135,7 +135,6 @@ class SplineTrackPipeline:
     
     def generate_step_files(self) -> bool:
         txt_file = os.path.abspath(os.path.join(self.output_dir, "Wheelset-Trk_Track.txt"))
-        print(txt_file)
         rail_step = generate_rail_sweep(txt_file, self.generate_rail_profile_points())
         sleeper_step = generate_sleeper_sweep(self.sleeper_length, self.sleeper_profile_points)
         
@@ -220,15 +219,11 @@ class SplineTrackPipeline:
 def main():
     """Main function to run the pipeline."""
     pipeline = SplineTrackPipeline(
-        spline_data_file="Wheelset.output/Wheelset-Trk_Track.txt",
-        output_dir="."
+        spline_data_file="Wheelset-Trk_Track.txt",
+        output_dir="Wheelset.output"
     )
     
-    step_files, config = pipeline.run()
-    print(f"\nGenerated STEP files:")
-    print(f"  Rail: {step_files['rail_step']}")
-    print(f"  Sleeper: {step_files['sleeper_step']}")
-    print(f"\nNow you can run the Abaqus script with: abaqus cae noGUI=spline_based_track.py")
+    step_files, config = pipeline.run(run_abaqus=True)
 
 
 if __name__ == "__main__":
