@@ -25,7 +25,7 @@ track_data_path = Path("out/results_0/models/Train.output/Train-Trk_Track.txt")
 route = TrackSplineRoute(
     name="Train Track Spline",
     track_data_path=track_data_path,
-    interpolation_method="cubic"
+    interpolation_method="cubic",
 )
 
 material_parameters = MaterialParameters()
