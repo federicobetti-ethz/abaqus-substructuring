@@ -18,6 +18,7 @@ import mesh
 import regionToolset
 
 import json
+import os
 import numpy as np
 from scipy.interpolate import CubicSpline, interp1d
 
@@ -96,6 +97,7 @@ class SplineBasedTrackGenerator:
             model_name (str): Name for the Abaqus model
         """
         self.model_name = model_name
+        self.base_model_name = model_name
         self.model = None
         self.json_file = json_file
         with open(os.path.abspath(self.json_file), "r") as f:
@@ -159,11 +161,26 @@ class SplineBasedTrackGenerator:
         ]
         self.rail_profile_points = [(-y, -z) for y, z in self.rail_profile_points]
 
+        self.max_frequency = 200.0
+
         self.num_sleepers = 0
         self.lower_nodes = []
         self.txt_file = "Wheelset.output/Wheelset-Trk_Track.txt"
+        self.segments = self.config.get(
+            "segments",
+            [
+                {
+                    "idx": 1,
+                    "model_name": self.model_name,
+                    "s_start": None,
+                    "s_end": None,
+                }
+            ],
+        )
 
-    def get_spline_coordinates(self, file_path: str):
+    def get_spline_coordinates(
+        self, file_path: str, s_start: float = None, s_end: float = None
+    ):
         """Get spline coordinates from the track output file.
 
         Args:
@@ -196,24 +213,48 @@ class SplineBasedTrackGenerator:
             for line in lines[zline + 3 : superelevation_line]:
                 zs.append(float(line.split(",")[1]))
 
-        return np.array(ss), np.array(xs), np.array(ys), np.array(zs)
+        ss = np.array(ss)
+        xs = np.array(xs)
+        ys = np.array(ys)
+        zs = np.array(zs)
 
-    def find_top_point_for_wheel_contact(self):
+        mask = np.ones_like(ss, dtype=bool)
+        if s_start is not None:
+            mask &= ss >= s_start
+        if s_end is not None:
+            mask &= ss <= s_end
+
+        if not np.any(mask):
+            raise ValueError(
+                f"No spline data found between s_start={s_start} and s_end={s_end}"
+            )
+
+        ss = ss[mask]
+        xs = xs[mask]
+        ys = ys[mask]
+        zs = zs[mask]
+
+        ss = ss - ss[0]
+
+        return ss, xs, ys, zs
+
+    def find_top_point_for_wheel_contact(self, rail_part):
         """Find the top point of the rail profile for wheel contact.
 
         Returns:
             tuple: Top point coordinates (x, y, z)
         """
+        min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
         zs = [z for _, z in self.rail_profile_points]
         top_z_index = zs.index(min(zs))
         top_point = (
-            0,
+            min_x_coord,
             self.rail_profile_points[top_z_index][0],
             self.rail_profile_points[top_z_index][1],
         )
         return top_point
 
-    def find_lower_points_for_coupling(self):
+    def find_lower_points_for_coupling(self, rail_part):
         """Find lower points of the rail profile for coupling.
 
         Returns:
@@ -221,9 +262,10 @@ class SplineBasedTrackGenerator:
         """
         zs = [z for _, z in self.rail_profile_points]
         lower_points = []
+        min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
         for i, (y, z) in enumerate(self.rail_profile_points):
             if np.isclose(z, max(zs)):
-                lower_points.append((0, y, z))
+                lower_points.append((min_x_coord, y, z))
         return lower_points
 
     def find_edge_along_spline_given_initial_point(self, rail_part, initial_point):
@@ -236,6 +278,7 @@ class SplineBasedTrackGenerator:
         Returns:
             int: Edge index
         """
+        min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
         edge_to_find = None
         edges = rail_part.edges
         vertices = rail_part.vertices
@@ -243,13 +286,13 @@ class SplineBasedTrackGenerator:
             vertices_indices = edge.getVertices()
             if (
                 np.allclose(vertices[vertices_indices[0]].pointOn[0], initial_point)
-                and vertices[vertices_indices[1]].pointOn[0][0] > 0.0
+                and vertices[vertices_indices[1]].pointOn[0][0] > min_x_coord
             ):
                 edge_to_find = edge.index
                 break
             elif (
                 np.allclose(vertices[vertices_indices[1]].pointOn[0], initial_point)
-                and vertices[vertices_indices[0]].pointOn[0][0] > 0.0
+                and vertices[vertices_indices[0]].pointOn[0][0] > min_x_coord
             ):
                 edge_to_find = edge.index
                 break
@@ -257,10 +300,8 @@ class SplineBasedTrackGenerator:
                 continue
         return edge_to_find
 
-    def create_model_and_parts(self):
+    def create_model_and_parts(self, segment_idx: int):
         """Create the model and load parts from geometry files."""
-        mdb = Mdb(pathName=self.model_name + ".cae")
-
         self.model = mdb.Model(name=self.model_name, modelType=STANDARD_EXPLICIT)
         mdb.openStep(self.rail_step_file, scaleFromFile=OFF)
         self.model.PartFromGeometryFile(
@@ -269,6 +310,7 @@ class SplineBasedTrackGenerator:
             geometryFile=mdb.acis,
             name=AbaqusConstants.RAIL_PART_NAME,
             type=DEFORMABLE_BODY,
+            bodyNum=segment_idx,
         )
 
         mdb.openStep(self.sleeper_step_file, scaleFromFile=OFF)
@@ -278,6 +320,7 @@ class SplineBasedTrackGenerator:
             geometryFile=mdb.acis,
             name=AbaqusConstants.SLEEPER_PART_NAME,
             type=DEFORMABLE_BODY,
+            bodyNum=1,
         )
 
     def mesh_rail_part(self, mesh_size: float = 0.09):
@@ -330,8 +373,8 @@ class SplineBasedTrackGenerator:
         """Create sets and surfaces for the rail part."""
         rail_part = self.model.parts[AbaqusConstants.RAIL_PART_NAME]
 
-        top_point = self.find_top_point_for_wheel_contact()
-        lower_points = self.find_lower_points_for_coupling()
+        top_point = self.find_top_point_for_wheel_contact(rail_part)
+        lower_points = self.find_lower_points_for_coupling(rail_part)
 
         edges = rail_part.edges
 
@@ -951,16 +994,16 @@ class SplineBasedTrackGenerator:
         self.model.FrequencyStep(
             name=AbaqusConstants.FREQUENCY_STEP,
             previous=AbaqusConstants.INITIAL_STEP,
-            maxEigen=200.0,
+            maxEigen=self.max_frequency,
             eigensolver=AMS,
             normalization=MASS,
             acousticCoupling=AC_OFF,
         )
 
-    def create_and_submit_job(self) -> None:
+    def create_and_submit_job(self, job_name: str) -> None:
         """Create and submit the Abaqus job."""
         job = mdb.Job(
-            name=self.model_name,
+            name=job_name,
             model=self.model_name,
             type=ANALYSIS,
             resultsFormat=SIM,
@@ -968,68 +1011,87 @@ class SplineBasedTrackGenerator:
 
         job.writeInput()
         time.sleep(2)
-        self.add_custom_line_to_inp()
+        self.add_custom_line_to_inp(job_name)
 
         time.sleep(5)
 
-        job = mdb.JobFromInputFile(self.model_name, f"{self.model_name}.inp")
+        job = mdb.JobFromInputFile(job_name, f"{job_name}.inp")
         job.submit()
         job.waitForCompletion()
 
-    def add_custom_line_to_inp(self) -> None:
+    def add_custom_line_to_inp(self, job_name: str) -> None:
         """Add a custom line to the generated .inp file."""
-        inp_file_path = f"{self.model_name}.inp"
-
-        with open(inp_file_path, "r") as f:
+        inp_file_path = f"{job_name}.inp"
+        
+        with open(inp_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-
-        target_pattern = "20, , , , ,"
+            
+        target_pattern = f", , {self.max_frequency:.0f}., , , ,"
         insert_position = None
-
+        
         for i, line in enumerate(lines):
             if target_pattern in line:
                 insert_position = i + 1
                 break
-
+        
         if insert_position is not None:
             custom_line = "*Flexible Body, type=SIMPACK\n"
             lines.insert(insert_position, custom_line)
-
-            with open(inp_file_path, "w") as f:
+            
+            with open(inp_file_path, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
 
     def generate_model(self):
-        """Generate the complete spline-based track model."""
-        ss, xs, ys, zs = self.get_spline_coordinates(self.txt_file)
-        xs_spline_interp = interp1d(ss, xs)
-        ys_spline_interp = interp1d(ss, ys)
-        zs_spline_interp = interp1d(ss, zs)
+        """Generate the complete spline-based track models for each segment."""
+        for segment in self.segments:
+            segment_idx = segment.get("idx", 1)
+            segment_name = segment.get(
+                "model_name", f"{self.base_model_name}_Seg{segment_idx:02d}"
+            )
+            s_start = segment.get("s_start")
+            s_end = segment.get("s_end")
 
-        self.create_model_and_parts()
+            print(
+                f"Generating segment {segment_idx}: {segment_name} "
+                f"(s_start={s_start}, s_end={s_end})"
+            )
 
-        self.mesh_rail_part()
-        self.mesh_sleeper_part()
+            self.model_name = segment_name
+            self.num_sleepers = 0
+            self.lower_nodes = []
 
-        self.create_rail_sets_and_surfaces()
-        self.create_sleeper_sets_and_surfaces()
+            ss, xs, ys, zs = self.get_spline_coordinates(
+                self.txt_file, s_start, s_end
+            )
+            xs_spline_interp = interp1d(ss, xs)
+            ys_spline_interp = interp1d(ss, ys)
+            zs_spline_interp = interp1d(ss, zs)
 
-        self.create_materials()
-        self.create_sections()
+            self.create_model_and_parts(segment_idx)
 
-        self.create_assembly(ss, xs_spline_interp, ys_spline_interp, zs_spline_interp)
+            self.mesh_rail_part()
+            self.mesh_sleeper_part()
 
-        self.create_coupling_constraints()
-        self.create_connector_sections()
-        self.create_wire_polylines()
+            self.create_rail_sets_and_surfaces()
+            self.create_sleeper_sets_and_surfaces()
 
-        self.create_encastre_sets_for_rail()
-        self.create_boundary_conditions()
-        self.create_frequency_step()
+            self.create_materials()
+            self.create_sections()
 
-        os.chdir(".")
+            self.create_assembly(ss, xs_spline_interp, ys_spline_interp, zs_spline_interp)
+
+            self.create_coupling_constraints()
+            self.create_connector_sections()
+            self.create_wire_polylines()
+
+            self.create_encastre_sets_for_rail()
+            self.create_boundary_conditions()
+            self.create_frequency_step()
+
+            os.chdir(".")
+            # self.create_and_submit_job(segment_name)
+
         mdb.saveAs(self.cae_file_name)
-
-        self.create_and_submit_job()
 
 
 if __name__ == "__main__":

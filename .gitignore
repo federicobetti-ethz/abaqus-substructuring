@@ -40,6 +40,9 @@
 *.cid
 *.023*
 *.lck
-*.fbi
+*.fbi*
 *.fmu
 *.cst
+*.times
+*.jobManifest
+*.mat

@@ -7,7 +7,7 @@ import os
 import sys
 from typing import Dict, List
 
-from gmsh_rail_generator import generate_rail_sweep
+from rail_generator import generate_rail_sweep
 from sleeper_generator import generate_sleeper_sweep
 
 
@@ -21,10 +21,10 @@ class SplineTrackPipeline:
         sleeper_length: float = 0.29,
         rail_burn_in: float = 0.205,
         sleeper_spacing: float = 0.7,
-        segment_length: float = 350.0,
-        overlap: float = 12.0,
+        segment_length: float = 100.0,
+        overlap: float = 20.0,
         min_segment_length: float = 20.0,
-        step_size: int = 2,
+        step_size: int = 1,
         rail_step: str = "rail_sweep.step",
         sleeper_step: str = "sleeper_sweep.step",
         cae_file_name: str = "SplineBasedTrack.cae",
@@ -59,6 +59,7 @@ class SplineTrackPipeline:
         self.rail_step = rail_step
         self.sleeper_step = sleeper_step
         self.cae_file_name = cae_file_name
+        self.segment_metadata: List[Dict[str, float]] = []
 
         self.left_half_points = [
             (1.263218, 283.628e-03),
@@ -160,12 +161,12 @@ class SplineTrackPipeline:
 
         return [(y - y_center, z - z_center) for y, z in rail_profile_points]
 
-    def generate_step_files(self) -> bool:
+    def generate_step_files(self) -> None:
         txt_file = os.path.abspath(
             os.path.join(self.output_dir, "Wheelset-Trk_Track.txt")
         )
 
-        generate_rail_sweep(
+        self.segment_metadata = generate_rail_sweep(
             txt_file,
             self.generate_rail_profile_points(),
             self.segment_length,
@@ -189,6 +190,22 @@ class SplineTrackPipeline:
         Returns:
             str: Path to the JSON file
         """
+        if not self.segment_metadata:
+            self.segment_metadata = [
+                {"idx": 1, "s_start": 0.0, "s_end": self.segment_length}
+            ]
+
+        segment_entries = []
+        for seg in self.segment_metadata:
+            segment_entries.append(
+                {
+                    "idx": seg["idx"],
+                    "model_name": f"SplineSegment{seg['idx']:02d}",
+                    "s_start": seg["s_start"],
+                    "s_end": seg["s_end"],
+                }
+            )
+
         config = {
             "rail_step_file": self.rail_step,
             "sleeper_step_file": self.sleeper_step,
@@ -196,6 +213,7 @@ class SplineTrackPipeline:
             "SleeperLength": self.sleeper_length,
             "RailBurnIn": self.rail_burn_in,
             "SleeperSpacing": self.sleeper_spacing,
+            "segments": segment_entries,
         }
 
         json_path = os.path.join(self.output_dir, "spline_track_config.json")

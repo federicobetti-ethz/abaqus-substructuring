@@ -1,167 +1,185 @@
-import FreeCAD as App
-import FreeCADGui as Gui
-import Part
-
-rail_profile_points = [
-    (1.316689, 423.774e-03),
-    (1.307883, 418.203e-03),
-    (1.297689, 414.324e-03),
-    (1.293897, 410.876e-03),
-    (1.291245, 403.458e-03),
-    (1.289639, 395.455e-03),
-    (1.288447, 385.816e-03),
-    (1.288039, 375.928e-03),
-    (1.288039, 365.147e-03),
-    (1.288039, 354.478e-03),
-    (1.288039, 343.928e-03),
-    (1.28855, 332.865e-03),
-    (1.290056, 322.022e-03),
-    (1.292114, 313.325e-03),
-    (1.29636, 308.967e-03),
-    (1.304345, 306.064e-03),
-    (1.314243, 302.464e-03),
-    (1.324179, 298.851e-03),
-    (1.334994, 296.545e-03),
-    (1.351075, 295.394e-03),
-    (1.354789, 291.404e-03),
-    (1.354789, 285.628e-03),
-    (1.340813, 283.628e-03),
-    (1.331635, 283.628e-03),
-    (1.320693, 283.628e-03),
-    (1.310722, 283.628e-03),
-    (1.299821, 283.628e-03),
-    (1.289311, 283.628e-03),
-    (1.279789, 283.628e-03),
-    (1.270053, 283.628e-03),
-    (1.259174, 283.628e-03),
-    (1.247651, 283.628e-03),
-    (1.236811, 283.628e-03),
-    (1.227038, 283.628e-03),
-    (1.217987, 283.628e-03),
-    (1.206789, 283.628e-03),
-    (1.204789, 291.404e-03),
-    (1.208504, 295.394e-03),
-    (1.217572, 296.043e-03),
-    (1.224584, 296.545e-03),
-    (1.235399, 298.851e-03),
-    (1.244588, 302.192e-03),
-    (1.254797, 305.905e-03),
-    (1.263218, 308.967e-03),
-    (1.267464, 313.325e-03),
-    (1.269523, 322.022e-03),
-    (1.271028, 332.863e-03),
-    (1.271539, 343.928e-03),
-    (1.271539, 354.478e-03),
-    (1.271539, 365.147e-03),
-    (1.271539, 375.928e-03),
-    (1.271131, 385.814e-03),
-    (1.269941, 395.449e-03),
-    (1.268339, 403.458e-03),
-    (1.265682, 410.873e-03),
-    (1.26189, 414.324e-03),
-    (1.25177, 418.175e-03),
-    (1.244818, 420.82e-03),
-    (1.243191, 429.775e-03),
-    (1.243773, 441.367e-03),
-    (1.246324, 448.472e-03),
-    (1.253665, 453.342e-03),
-    (1.261358, 454.77e-03),
-    (1.269539, 455.453e-03),
-    (1.279789, 455.628e-03),
-    (1.290039, 455.453e-03),
-    (1.29804, 454.795e-03),
-    (1.305914, 453.342e-03),
-    (1.312847, 448.992e-03),
-    (1.315806, 441.367e-03),
-    (1.316355, 430.434e-03),
-]
-
-y_coords = [y for y, _ in rail_profile_points]
-z_coords = [z for _, z in rail_profile_points]
-
-y_center = (min(y_coords) + max(y_coords)) / 2
-z_center = (min(z_coords) + max(z_coords)) / 2
-
-rail_profile_points = [(y - y_center, z - z_center) for y, z in rail_profile_points]
-
-doc = App.newDocument("Sweep3D")
-profile_points = [App.Vector(0, y, z) for y, z in rail_profile_points]
-profile_points.append(profile_points[0])
-profile_wire_poly = Part.makePolygon(profile_points)
-profile_face = Part.Face(profile_wire_poly)
-profile_obj = doc.addObject("Part::Feature", "Profile")
-profile_obj.Shape = profile_face
-doc.recompute()
-
-xs = []
-ys = []
-zs = []
-us = []
-
-txt_file = "C:/Users/bettif/Documents/Github/estra/out/results_0/models/Track.output/Track-Trk_Track.txt"
-with open(txt_file, "r") as f:
-    lines = f.readlines()
-
-    for idx, line in enumerate(lines):
-        if line.startswith('"Superelevation u(s)"'):
-            superelevation_line = idx
-        elif line.startswith('"x(s)"'):
-            xline = idx
-        elif line.startswith('"y(s)"'):
-            yline = idx
-        elif line.startswith('"z(s)"'):
-            zline = idx
-
-    for line in lines[xline + 3 : yline]:
-        values = [float(value) for value in line.split(",")[:2]]
-        xs.append(values[1])
-
-    for line in lines[yline + 3 : zline]:
-        values = [float(value) for value in line.split(",")[:2]]
-        ys.append(values[1])
-
-    for line in lines[zline + 3 : superelevation_line]:
-        values = [float(value) for value in line.split(",")[:2]]
-        zs.append(values[1])
-
-    for line in lines[superelevation_line + 3 :]:
-        values = [float(value) for value in line.split(",")[:2]]
-        us.append(values[1])
-
-points = [App.Vector(xs[i], ys[i], zs[i]) for i in range(len(xs))]
-
-spline = Part.BSplineCurve()
-spline.approximate(points)
-edge = spline.toShape()
-path_wire = Part.Wire([profile_wire_poly])
-spline_obj = doc.addObject("Part::Feature", "Spine")
-spline_obj.Shape = edge
-doc.recompute()
-
-# sweep = doc.addObject("Part::Sweep", "Sweep")
-# sweep.Sections = [profile_obj]
-# sweep.Spine = spline_obj
-# sweep.Solid = True
-# sweep.Frenet = False
-# doc.recompute()
-
-ps = Part.BRepOffsetAPI.MakePipeShell(path_wire)
-spine_support = path_wire.extrude(App.Vector(0, 0, 1))
-ps.setSpineSupport(spine_support)
-ps.add(profile_wire_poly, False, True)
-
-if ps.isReady():
-    ps.build()
-    ps.makeSolid()
-    if ps.getStatus() == 0:
-        tw = ps.shape()
-        brep = Part.show(tw, "BREPPipeshell")
+import gmsh
+import numpy as np
 
 
-doc.recompute()
+def generate_rail_sweep(
+    txt_file: str,
+    rail_profile_points: list,
+    segment_length: float = 100.0,
+    overlap: float = 12.0,
+    min_segment_length: float = 20.0,
+    step_size: int = 1,
+    step_file: str = "rail_sweep.step",
+    model_name: str = "RailSweep",
+):
+    """
+    Generate a rail by sweeping a profile along a spline, split into multiple segments based on arc length.
 
-Gui.activeDocument().activeView().viewIsometric()
-Gui.SendMsgToActiveView("ViewFit")
+    Args:
+        txt_file: Path to trajectory data file
+        rail_profile_points: List of (y, z) tuples defining the rail profile
+        segment_length: Length of each segment along the curve in meters (default: 100.0)
+        overlap: Overlap between adjacent segments in meters (default: 12.0)
+        min_segment_length: Minimum segment length to keep, otherwise skip last segment (default: 20.0)
+        step_size: Downsampling factor for spline points (default: 10)
+                   Lower values (2-3) give smoother curves but more data.
+                   Use step_size=2 or 3 for smooth results.
+        step_file: Output STEP file path
+        model_name: Name for the GMSH model
+    """
+    gmsh.initialize()
+    gmsh.model.add(model_name)
 
-output_file = "C:/Users/bettif/Documents/Github/estra/out/results_0/models/Track.output/Track.step"
-Part.export([brep], output_file)
+    y_coords = [y for y, _ in rail_profile_points]
+    z_coords = [z for _, z in rail_profile_points]
+    y_center = (min(y_coords) + max(y_coords)) / 2
+    z_center = (min(z_coords) + max(z_coords)) / 2
+    rail_profile_points = [(y - y_center, z - z_center) for y, z in rail_profile_points]
+
+    ss, xs, ys, zs = [], [], [], []
+    with open(txt_file, "r") as f:
+        lines = f.readlines()
+
+        for idx, line in enumerate(lines):
+            if line.startswith('"x(s)"'):
+                xline = idx
+            elif line.startswith('"y(s)"'):
+                yline = idx
+            elif line.startswith('"z(s)"'):
+                zline = idx
+            elif line.startswith('"Superelevation u(s)"'):
+                superelevation_line = idx
+
+        for line in lines[xline + 3 : yline]:
+            parts = line.split(",")
+            ss.append(float(parts[0]))
+            xs.append(float(parts[1]))
+
+        for line in lines[yline + 3 : zline]:
+            parts = line.split(",")
+            ys.append(float(parts[1]))
+
+        for line in lines[zline + 3 : superelevation_line]:
+            parts = line.split(",")
+            zs.append(float(parts[1]))
+
+    min_len = min(len(ss), len(xs), len(ys), len(zs))
+    ss = np.array(ss[:min_len])
+    xs = np.array(xs[:min_len])
+    ys = np.array(ys[:min_len])
+    zs = np.array(zs[:min_len])
+
+    if step_size > 1:
+        indices_ds = np.arange(0, len(xs), step_size)
+        ss_ds = ss[indices_ds]
+        xs_ds = xs[indices_ds]
+        ys_ds = ys[indices_ds]
+        zs_ds = zs[indices_ds]
+    else:
+        ss_ds = ss
+        xs_ds = xs
+        ys_ds = ys
+        zs_ds = zs
+
+    total_length = ss[-1] - ss[0]
+    print(f"Total track length: {total_length:.2f} m")
+
+    if total_length <= segment_length:
+        print(
+            f"Track shorter than segment length ({total_length:.2f} m < {segment_length:.2f} m), creating single segment"
+        )
+        start_idx = 0
+        end_idx = len(ss_ds)
+        segments = [(start_idx, end_idx, ss[0], ss[-1])]
+    else:
+        net_segment_length = segment_length - overlap
+        segments = []
+
+        current_s = ss[0]
+        seg_idx = 0
+
+        while current_s < ss[-1]:
+            segment_start_s = current_s
+            segment_end_s = min(current_s + segment_length, ss[-1])
+
+            remaining_after_this = ss[-1] - segment_end_s
+            if remaining_after_this < min_segment_length and remaining_after_this > 0:
+                segment_end_s = ss[-1]
+                print(
+                    f"Extending segment to cover remaining {segment_end_s - segment_start_s:.2f} m (to avoid {remaining_after_this:.2f} m short segment)"
+                )
+
+            start_idx = np.searchsorted(ss_ds, segment_start_s)
+            end_idx = np.searchsorted(ss_ds, segment_end_s, side="right")
+
+            if end_idx - start_idx < 2:
+                break
+
+            segments.append((start_idx, end_idx, segment_start_s, segment_end_s))
+
+            if segment_end_s >= ss[-1]:
+                break
+
+            current_s += net_segment_length
+            seg_idx += 1
+
+    print(f"Creating {len(segments)} segments")
+
+    volumes = []
+    segment_metadata = []
+
+    for seg_idx, (start_idx, end_idx, seg_start_s, seg_end_s) in enumerate(segments):
+        print(
+            f"Segment {seg_idx + 1}: s = {seg_start_s:.2f} to {seg_end_s:.2f} m (length = {seg_end_s - seg_start_s:.2f} m)"
+        )
+
+        seg_xs = xs_ds[start_idx:end_idx]
+        seg_ys = ys_ds[start_idx:end_idx]
+        seg_zs = zs_ds[start_idx:end_idx]
+
+        seg_start_x, seg_start_y, seg_start_z = seg_xs[0], seg_ys[0], seg_zs[0]
+
+        profile_pts_tags = []
+        for y, z in rail_profile_points:
+            profile_pts_tags.append(
+                gmsh.model.occ.addPoint(seg_start_x, seg_start_y - y, seg_start_z - z)
+            )
+
+        profile_lines = []
+        for i in range(len(profile_pts_tags)):
+            pstart = i
+            pend = (i + 1) % len(profile_pts_tags)
+            profile_lines.append(
+                gmsh.model.occ.addLine(profile_pts_tags[pstart], profile_pts_tags[pend])
+            )
+
+        cl = gmsh.model.occ.addCurveLoop(profile_lines)
+        profile_face = gmsh.model.occ.addPlaneSurface([cl])
+
+        segment_pts = []
+        for i in range(len(seg_xs)):
+            segment_pts.append(gmsh.model.occ.addPoint(seg_xs[i], seg_ys[i], seg_zs[i]))
+
+        segment_spline = gmsh.model.occ.addSpline(segment_pts)
+        wire_tag = gmsh.model.occ.addWire([segment_spline])
+        sweep = gmsh.model.occ.addPipe([(2, profile_face)], wire_tag)
+
+        for dim, tag in sweep:
+            if dim == 3:
+                volumes.append(tag)
+
+    gmsh.model.occ.synchronize()
+
+    gmsh.write(step_file)
+    gmsh.finalize()
+
+    for seg_idx, (_, _, seg_start_s, seg_end_s) in enumerate(segments, start=1):
+        segment_metadata.append(
+            {
+                "idx": seg_idx,
+                "s_start": float(seg_start_s),
+                "s_end": float(seg_end_s),
+            }
+        )
+
+    return segment_metadata
