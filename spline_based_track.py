@@ -411,7 +411,7 @@ class SplineBasedTrackGenerator:
             face_nodes = face.getNodes()
             nodes_z_coordinates = [node.coordinates[2] for node in face_nodes]
 
-            if np.allclose(nodes_z_coordinates, min_z_sleeper):
+            if np.allclose(nodes_z_coordinates, min_z_sleeper) and np.allclose(face.getNormal(), [0., 0., 1.]):
                 y_coordinates = face_nodes[0].coordinates[1]
                 side = "Left" if y_coordinates < 0.0 else "Right"
 
@@ -434,51 +434,18 @@ class SplineBasedTrackGenerator:
                 nodes=control_point,
             )
 
-            face2Indices = [
-                index
-                for index, value in enumerate(faces_sides[side])
-                if value == "FACE2"
-            ]
-            face2Elements = [element_faces[side][idx] for idx in face2Indices]
-            face2Elements = sleeper_part.elements.sequenceFromLabels(
-                labels=[element.label for element in face2Elements]
-            )
-
-            face3Indices = [
-                index
-                for index, value in enumerate(faces_sides[side])
-                if value == "FACE3"
-            ]
-            face3Elements = [element_faces[side][idx] for idx in face3Indices]
-            face3Elements = sleeper_part.elements.sequenceFromLabels(
-                labels=[element.label for element in face3Elements]
-            )
-
-            face4Indices = [
-                index
-                for index, value in enumerate(faces_sides[side])
-                if value == "FACE4"
-            ]
-            face4Elements = [element_faces[side][idx] for idx in face4Indices]
-            face4Elements = sleeper_part.elements.sequenceFromLabels(
-                labels=[element.label for element in face4Elements]
-            )
-
-            face5Indices = [
-                index
-                for index, value in enumerate(faces_sides[side])
-                if value == "FACE5"
-            ]
-            face5Elements = [element_faces[side][idx] for idx in face5Indices]
-            face5Elements = sleeper_part.elements.sequenceFromLabels(
-                labels=[element.label for element in face5Elements]
-            )
-
             surface_kwargs = {}
-            surface_kwargs["face2Elements"] = face2Elements
-            surface_kwargs["face3Elements"] = face3Elements
-            surface_kwargs["face4Elements"] = face4Elements
-            surface_kwargs["face5Elements"] = face5Elements
+            for idx in range(1, 7):
+                indices = [
+                    index
+                    for index, value in enumerate(faces_sides[side])
+                    if value == f"FACE{idx}"
+                ]
+                elements = [element_faces[side][k] for k in indices]
+                elements = sleeper_part.elements.sequenceFromLabels(
+                    labels=[element.label for element in elements]
+                )
+                surface_kwargs[f"face{idx}Elements"] = elements
 
             surface_name = (
                 AbaqusConstants.LEFT_BALLAST_CONNECTION
@@ -984,8 +951,8 @@ class SplineBasedTrackGenerator:
         self.model.FrequencyStep(
             name=AbaqusConstants.FREQUENCY_STEP,
             previous=AbaqusConstants.INITIAL_STEP,
-            numEigen=20,
-            eigensolver=LANCZOS,
+            maxEigen=200.0,
+            eigensolver=AMS,
             normalization=MASS,
             acousticCoupling=AC_OFF,
         )
@@ -1062,7 +1029,7 @@ class SplineBasedTrackGenerator:
         os.chdir(".")
         mdb.saveAs(self.cae_file_name)
 
-        # self.create_and_submit_job()
+        self.create_and_submit_job()
 
 
 if __name__ == "__main__":
