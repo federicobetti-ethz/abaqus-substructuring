@@ -21,7 +21,7 @@ class SplineTrackPipeline:
         sleeper_length: float = 0.29,
         rail_burn_in: float = 0.205,
         sleeper_spacing: float = 0.7,
-        segment_length: float = 100.0,
+        segment_length: float = 50.0,
         overlap: float = 20.0,
         min_segment_length: float = 20.0,
         step_size: int = 1,

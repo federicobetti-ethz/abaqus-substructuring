@@ -245,14 +245,10 @@ class SplineBasedTrackGenerator:
             tuple: Top point coordinates (x, y, z)
         """
         min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
-        zs = [z for _, z in self.rail_profile_points]
-        top_z_index = zs.index(min(zs))
-        top_point = (
-            min_x_coord,
-            self.rail_profile_points[top_z_index][0],
-            self.rail_profile_points[top_z_index][1],
-        )
-        return top_point
+        initial_points = [vertex.pointOn[0] for vertex in rail_part.vertices if np.isclose(vertex.pointOn[0][0], min_x_coord)]
+        assert len(initial_points) == len(self.rail_profile_points)
+        top_rail_point = min(initial_points, key=lambda x: x[2])
+        return top_rail_point
 
     def find_lower_points_for_coupling(self, rail_part):
         """Find lower points of the rail profile for coupling.
@@ -260,12 +256,14 @@ class SplineBasedTrackGenerator:
         Returns:
             list: List of lower points
         """
-        zs = [z for _, z in self.rail_profile_points]
         lower_points = []
         min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
-        for i, (y, z) in enumerate(self.rail_profile_points):
-            if np.isclose(z, max(zs)):
-                lower_points.append((min_x_coord, y, z))
+        initial_points = [vertex.pointOn[0] for vertex in rail_part.vertices if np.isclose(vertex.pointOn[0][0], min_x_coord)]
+        assert len(initial_points) == len(self.rail_profile_points)
+        lower_z = max([vertex.pointOn[0][2] for vertex in rail_part.vertices])
+        for i, (x, y, z) in enumerate(initial_points):
+            if np.isclose(z, lower_z):
+                lower_points.append((x, y, z))
         return lower_points
 
     def find_edge_along_spline_given_initial_point(self, rail_part, initial_point):
@@ -280,8 +278,10 @@ class SplineBasedTrackGenerator:
         """
         min_x_coord = min([vertex.pointOn[0][0] for vertex in rail_part.vertices])
         edge_to_find = None
+
         edges = rail_part.edges
         vertices = rail_part.vertices
+        
         for edge in edges:
             vertices_indices = edge.getVertices()
             if (
@@ -298,6 +298,7 @@ class SplineBasedTrackGenerator:
                 break
             else:
                 continue
+
         return edge_to_find
 
     def create_model_and_parts(self, segment_idx: int):
@@ -921,10 +922,11 @@ class SplineBasedTrackGenerator:
         """Create encastre sets for the rail."""
         rail_part = self.model.parts[AbaqusConstants.RAIL_PART_NAME]
         nodes = rail_part.nodes
+        min_x_coord = min([node.coordinates[0] for node in nodes])
 
         node_labels = []
         for node in nodes:
-            if np.isclose(node.coordinates[0], 0.0, atol=0.02):
+            if np.isclose(node.coordinates[0], min_x_coord, atol=0.02):
                 node_labels.append(node.label)
 
         nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
@@ -932,11 +934,11 @@ class SplineBasedTrackGenerator:
             name=AbaqusConstants.BEGINNING_RAIL_LOCKED, nodes=nodes_to_be_locked
         )
 
-        max_x_coordinate = max([node.coordinates[0] for node in nodes])
+        max_x_coord = max([node.coordinates[0] for node in nodes])
 
         node_labels = []
         for node in nodes:
-            if np.isclose(node.coordinates[0], max_x_coordinate, atol=0.02):
+            if np.isclose(node.coordinates[0], max_x_coord, atol=0.02):
                 node_labels.append(node.label)
 
         nodes_to_be_locked = rail_part.nodes.sequenceFromLabels(labels=node_labels)
@@ -1089,7 +1091,7 @@ class SplineBasedTrackGenerator:
             self.create_frequency_step()
 
             os.chdir(".")
-            # self.create_and_submit_job(segment_name)
+            self.create_and_submit_job(segment_name)
 
         mdb.saveAs(self.cae_file_name)
 
